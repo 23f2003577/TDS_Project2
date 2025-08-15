@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pandas
+numpy
+python-dotenv
+httpx
+google-generativeai
+playwright
