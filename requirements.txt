@@ -7,3 +7,4 @@ httpx
 playwright
 google-genai
 openai
+pytest-playwright
