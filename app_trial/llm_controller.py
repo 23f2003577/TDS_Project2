@@ -40,6 +40,7 @@ async def infer_expected_format(question: str, result=None):
     prompt = f"""
 Read the following task description and figure out the structure of the expected output.
 If the result variable is not None, use it's value to infer the expected format.
+If the result requires to be assigned to a particular variable, use that variable name in the output.
 Rules:
 - Output ONLY valid JSON that serves as a TEMPLATE for the expected format.
 - Do NOT include commentary, markdown fences, or explanations.
