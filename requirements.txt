@@ -8,3 +8,4 @@ playwright
 google-genai
 openai
 pytest-playwright
+networkx
