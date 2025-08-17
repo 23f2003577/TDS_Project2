@@ -28,23 +28,30 @@ def sanitize_result(result):
         return str(result)  # Fallback: convert to string
 
 
-async def generate_code(task: list, notes: str) -> str:
+async def generate_code(task: list, notes: str, extra_files: list) -> str:
     prompt = f"""You are a Python data analyst. Generate Python code to perform the given task. 
-    Add inline dependencies for any imports that are required.
-    Do not add explanations. Output only Python code.
-    All files and data you need to read are in the 'uploads' directory. Use them efficiently.
-    If you scrape data, save it to the 'uploads' directory with a meaningful name.
-    Use the given additional notes and instructions for context.
-    Instructions:
-    - Use Playwright (async) for any web scraping tasks. Do not use requests or BeautifulSoup.
-    - You can use libraries like pandas, numpy, duckdb, matplotlib, Playwright, etc.
-    - You MUST assign the final answer to a variable called 'result_data'.
-    - Do not print or return anything.
+    - Add inline dependencies for all imports.  
+    - No explanations. Output code only.  
+    - Use ONLY these files from the 'uploads' directory: {extra_files}. Do not invent new file names. 
+    - Use attribute names ONLY after reading the files. 
+    - If scraping, save data in 'uploads' with a meaningful name.  
+    
+    - Follow additional notes/instructions for context.  
+    Rules:  
+    - Use Playwright (async) for scraping (not requests/BeautifulSoup).  
+    - Allowed libs: pandas, numpy, duckdb, matplotlib, Playwright, etc.  
+    - Final result MUST be assigned to 'result_data'.  
+    - Do not print or return anything.  
 
-    Examples:
-    result_data = 42
-    result_data = "Maharashtra"
-"""
+    Example:  
+    # /// script  
+    # requires-python = ">=3.11"  
+    # dependencies = [ "pandas", "numpy", ... ]  
+    # ///  
+    [YOUR CODE HERE]  
+    result_data = 42  
+    return result_data  
+    """
 
     response = client.models.generate_content(
         model="gemini-2.0-flash-lite",
@@ -72,15 +79,15 @@ def execute_code(code: str) -> (bool, dict): # type: ignore
                 "\n\n"
                 "import json, sys, numpy, json\n"
                 "def convert_np(obj):\n"
-                "    if isinstance(obj, np.integer):\n"
+                "    if isinstance(obj, numpy.integer):\n"
                 "        return int(obj)\n"
-                "    elif isinstance(obj, np.floating):\n"
+                "    elif isinstance(obj, numpy.floating):\n"
                 "        return float(obj)\n"
-                "    elif isinstance(obj, np.ndarray):\n"
+                "    elif isinstance(obj, numpy.ndarray):\n"
                 "        return obj.tolist()\n"
                 "    raise TypeError(f\"Type {type(obj)} not serializable\")\n"
                 "with open(sys.argv[1], 'w') as f:\n"
-                "    json.dumps(result_data, default=convert_np, f)\n"
+                "    json.dump(result_data, f, default=convert_np)\n"
             )
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as out_file:
@@ -113,7 +120,7 @@ def execute_code(code: str) -> (bool, dict): # type: ignore
         return False, traceback.format_exc()
 
 
-async def fix_code(task: str, faulty_code: str, error_message: str) -> str:
+async def fix_code(task: str, faulty_code: str, error_message: str, extra_files: list) -> str:
     prompt = f"""The following Python code was generated to perform the task: {task}
 Code:
 {faulty_code}
@@ -122,7 +129,10 @@ But it failed with the following error: {error_message}
 
 Debug the code to make sure it runs successfully and return only the corrected Python code.
 Add inline dependencies for any imports that are required.
-Use the uploads directory for any files you need to read or write.
+Available files in the uploads directory are: {extra_files}.
+You must ONLY use these files if you need to load data. Do not invent filenames. 
+Do not invent column names or attributes. Read the files first to know what attributes are available.
+
 Do not add explanations or comments.
 """
     try:
@@ -140,13 +150,13 @@ Do not add explanations or comments.
         return faulty_code
 
 
-async def process_task(task: list, notes: list, max_retries=2) -> dict:
+async def process_task(task: list, notes: list, extra_files: list, max_retries=2) -> dict:
     """
     Runs the full cycle of generating, executing, retrying, and falling back to expected format.
     """
     print(f"Processing task: {task}")
     try:
-        code = await generate_code(task, notes)
+        code = await generate_code(task, notes, extra_files)
     except Exception as e:
         return {"task": task, "error": f"Code generation failed: {str(e)}"}
 
@@ -159,12 +169,11 @@ async def process_task(task: list, notes: list, max_retries=2) -> dict:
         if success:
             print(f"Execution successful: {result}")
             result = sanitize_result(result)
-            expected_format = await infer_expected_format(task, result)
-            return expected_format if expected_format else result
+            return result
 
         print(f"Execution failed: {result}")
         print(f"Attempt {attempt + 1} failed. Trying to fix...")
-        code = await fix_code(task, code, result)
+        code = await fix_code(task, code, result, extra_files)
 
     print("Task failed after multiple attempts. Returning fallback format...")
 
