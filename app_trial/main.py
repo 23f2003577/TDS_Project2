@@ -21,7 +21,6 @@ def cast_answer(value):
         except ValueError:
             # Remove quotes and backslashes if it's a string
             return value
-            #return value.replace('"', '').replace('\\', '').strip()  
     elif isinstance(value, list):
         return [cast_answer(v) for v in value]
     elif isinstance(value, dict):
@@ -34,11 +33,15 @@ async def analyze_data(request : Request):
     UPLOAD_DIR.mkdir(exist_ok=True)
 
     form = await request.form()
-    
-    if "questions.txt" not in form:
-        raise HTTPException(status_code=400, detail="questions.txt file is required.")
-    
-    question_file: UploadFile = form["questions.txt"]
+
+    if "questions.txt" not in form and "question.txt" not in form:
+        raise HTTPException(status_code=400, detail="questions.txt or question.txt file is required.")
+
+    if "questions.txt" in form:
+        question_file: UploadFile = form.get("questions.txt")
+    else:
+        question_file: UploadFile = form.get("question.txt")
+
     if not question_file.filename.endswith(".txt"):
         raise HTTPException(status_code=400, detail="Please upload a .txt file for questions.txt.")
     
@@ -46,14 +49,16 @@ async def analyze_data(request : Request):
         # Read question text
         question_text = (await question_file.read()).decode('utf-8')
 
+        extra_files = []
         # Collect all other files into a list
         for field_name, value in form.items():
             if hasattr(value, "filename") and value.filename:
                 file_path = UPLOAD_DIR / value.filename
                 with open(file_path, "wb") as f:
                     f.write(await value.read())
-        
-        print(f"Saved extra files")
+                extra_files.append(file_path)
+
+        print(f"Saved extra files: {extra_files}")
 
         # Step 1: Get breakdown from LLM
         breakdown = await breakdown_question(question_text)
@@ -69,17 +74,19 @@ async def analyze_data(request : Request):
             details = step.get("details", "")
             print(f"Executing step {step_num}: {details}")
             try:
-                result = await process_task(details, notes)
+                result = await process_task(details, notes, extra_files)
                 if step_num in final_steps:
                     print(f"Appending actual result for step {step_num}")
-                    results.append(cast_answer(result))
+                    results.append(result)
             except Exception as task_err:
                 print(f"Step {step_num} failed: {task_err}")
                 if step_num in final_steps:
                     dummy_guess = await get_dummy_guess(details)
                     print(f"Appending dummy guess for step {step_num}")
-                    results.append(cast_answer(dummy_guess))
-
+                    #results.append(cast_answer(dummy_guess))
+                    results.append(dummy_guess)
+        # Cast results to ensure correct types
+            print(f"Result {step_num} : {results}")
         return json.dumps(results)
 
     except Exception as e:
